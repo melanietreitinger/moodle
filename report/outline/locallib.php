@@ -58,18 +58,28 @@ function report_outline_print_row($mod, $instance, $result) {
  * Returns an array of the commonly used log variables by the outline report.
  *
  * @return array the array of variables used
+ * @throws dml_exception
  */
-function report_outline_get_common_log_variables() {
+function report_outline_get_common_log_variables(): array {
     global $DB;
 
     static $uselegacyreader;
     static $useinternalreader;
     static $usedatabasereader;
     static $minloginternalreader;
-    static $logtable = null;
+    static $logtable;
+    static $logreader;
 
-    if (isset($uselegacyreader) && isset($usedatabasereader) && isset($useinternalreader) && isset($minloginternalreader)) {
-        return array($uselegacyreader, $useinternalreader, $minloginternalreader, $logtable, $usedatabasereader);
+    if (isset($uselegacyreader) && isset($usedatabasereader) && isset($useinternalreader) && isset($minloginternalreader)
+            && isset($logtable) && isset($reader)) {
+        return [
+                'uselegacyreader' => $uselegacyreader,
+                'usedatabasereader' => $usedatabasereader,
+                'useinternalreader' => $useinternalreader,
+                'minloginternalreader' => $minloginternalreader,
+                'logtable' => $logtable,
+                'reader' => $logreader,
+        ];
     }
 
     $uselegacyreader = false; // Flag to determine if we should use the legacy reader.
@@ -84,26 +94,36 @@ function report_outline_get_common_log_variables() {
     // Get preferred reader.
     if (!empty($readers)) {
         foreach ($readers as $readerpluginname => $reader) {
+            $logreader = $reader;
             // If legacy reader is preferred reader.
             if ($readerpluginname == 'logstore_legacy') {
                 $uselegacyreader = true;
             }
-            if ($reader instanceof logstore_database\log\store) {
+            else if ($reader instanceof \core\log\sql_reader) {
                 $usedatabasereader = true;
                 $logtable = get_config('logstore_database', 'dbtable');
-                $store = new \logstore_database\log\store($logmanager);
-                $dbext = $store->get_extdb();
-                $minloginternalreader = $dbext->get_field_sql('SELECT min(timecreated) FROM ' . $logtable . '');
+                $events = $reader->get_events_select('', [], 'timecreated ASC', 0, 1);
+                if ($events) {
+                    $event = reset($events);
+                    $minloginternalreader = $event->timecreated;
+                }
             }
             // If sql_internal_table_reader is preferred reader.
-            if ($reader instanceof \core\log\sql_internal_table_reader) {
+            else if ($reader instanceof \core\log\sql_internal_table_reader) {
                 $useinternalreader = true;
                 $logtable = $reader->get_internal_log_table_name();
                 $minloginternalreader = $DB->get_field_sql('SELECT min(timecreated) FROM {' . $logtable . '}');
             }
         }
     }
-    return array($uselegacyreader, $useinternalreader, $minloginternalreader, $logtable, $usedatabasereader);
+    return [
+            'uselegacyreader' => $uselegacyreader,
+            'usedatabasereader' => $usedatabasereader,
+            'useinternalreader' => $useinternalreader,
+            'minloginternalreader' => $minloginternalreader,
+            'logtable' => $logtable,
+            'reader' => $logreader,
+    ];
 }
 
 /**
@@ -115,12 +135,22 @@ function report_outline_get_common_log_variables() {
  * @param int $instanceid (eg. the 'id' in the 'book' table)
  * @return stdClass|null if any information is found then a stdClass containing
  *  this info is returned, else null is.
+ * @throws coding_exception
+ * @throws dml_exception
  */
-function report_outline_user_outline($userid, $cmid, $module, $instanceid) {
+function report_outline_user_outline(int $userid, int $cmid, string $module, int $instanceid): ?stdClass {
     global $DB;
 
-    list($uselegacyreader, $useinternalreader, $minloginternalreader, $logtable, $usedatabasereader)
-            = report_outline_get_common_log_variables();
+    $lastlogtime = null;
+
+    [
+            'uselegacyreader' => $uselegacyreader,
+            'useinternalreader' => $useinternalreader,
+            'minloginternalreader' => $minloginternalreader,
+            'logtable' => $logtable,
+            'usedatabasereader' => $usedatabasereader,
+            'reader' => $logreader,
+    ] = report_outline_get_common_log_variables();
 
     // If using legacy log then get users from old table.
     if ($uselegacyreader) {
@@ -168,12 +198,10 @@ function report_outline_user_outline($userid, $cmid, $module, $instanceid) {
             $from = "FROM {" . $logtable . "} ";
             $internalreadercount = $DB->count_records_sql($select . $from . $where, $params);
         } else {
-            $from = "FROM " . $logtable . " ";
-            $logmanager = get_log_manager();
-            $store = new \logstore_database\log\store($logmanager);
-            $dbext = $store->get_extdb();
-            $internalreadercount = $dbext->count_records_sql($select . $from . $where, $params);
+            $where2 = substr($where, 6);
+            $internalreadercount = $logreader->get_events_select_count($where2, $params);
         }
+
         if ($internalreadercount) {
             if (!empty($numviews)) {
                 $numviews = $numviews + $internalreadercount;
@@ -186,7 +214,12 @@ function report_outline_user_outline($userid, $cmid, $module, $instanceid) {
             if ($useinternalreader) {
                 $lastlogtime = $DB->get_field_sql($select . $from . $where, $params);
             } else {
-                $lastlogtime = $dbext->get_field_sql($select . $from . $where, $params);
+                $where2 = substr($where, 6);
+                $events = $logreader->get_events_select($where2, $params, 'timecreated DESC', 0, 1);
+                if ($events) {
+                    $event = reset($events);
+                    $lastlogtime = $event->timecreated;
+                }
             }
 
             $result = new stdClass();
@@ -210,12 +243,20 @@ function report_outline_user_outline($userid, $cmid, $module, $instanceid) {
  * @param string $module the name of the module (eg. 'book')
  * @param int $instanceid (eg. the 'id' in the 'book' table)
  * @return string
+ * @throws coding_exception
+ * @throws dml_exception
  */
-function report_outline_user_complete($userid, $cmid, $module, $instanceid) {
+function report_outline_user_complete(int $userid, int $cmid, string $module, int $instanceid): string {
     global $DB;
 
-    list($uselegacyreader, $useinternalreader, $minloginternalreader, $logtable, $usedatabasereader)
-            = report_outline_get_common_log_variables();
+    [
+            'uselegacyreader' => $uselegacyreader,
+            'useinternalreader' => $useinternalreader,
+            'minloginternalreader' => $minloginternalreader,
+            'logtable' => $logtable,
+            'usedatabasereader' => $usedatabasereader,
+            'reader' => $logreader,
+    ] = report_outline_get_common_log_variables();
 
     // If using legacy log then get users from old table.
     if ($uselegacyreader) {
@@ -261,12 +302,10 @@ function report_outline_user_complete($userid, $cmid, $module, $instanceid) {
             $from = "FROM {" . $logtable . "} ";
             $internalreadercount = $DB->count_records_sql($select . $from . $where, $params);
         } else {
-            $from = "FROM " . $logtable . " ";
-            $logmanager = get_log_manager();
-            $store = new \logstore_database\log\store($logmanager);
-            $dbext = $store->get_extdb();
-            $internalreadercount = $dbext->count_records_sql($select . $from . $where, $params);
+            $where2 = substr($where, 6);
+            $internalreadercount = $logreader->get_events_select_count($where2, $params);
         }
+
         if ($internalreadercount) {
             if (!empty($numviews)) {
                 $numviews = $numviews + $internalreadercount;
@@ -279,7 +318,11 @@ function report_outline_user_complete($userid, $cmid, $module, $instanceid) {
             if ($useinternalreader) {
                 $lastlogtime = $DB->get_field_sql($select . $from . $where, $params);
             } else {
-                $lastlogtime = $dbext->get_field_sql($select . $from . $where, $params);
+                $where2 = substr($where, 6);
+                $events = $logreader->get_events_select($where2, $params, 'timecreated DESC', 0, 1);
+                if ($events) {
+                    $lastlogtime = $events->timecreated;
+                }
             }
 
             $strnumviews = get_string('numviews', '', $numviews);

@@ -94,8 +94,14 @@ echo $OUTPUT->header();
 $pluginname = get_string('pluginname', 'report_outline');
 report_helper::print_report_selector($pluginname);
 
-list($uselegacyreader, $useinternalreader, $minloginternalreader, $logtable, $usedatabasereader)
-        = report_outline_get_common_log_variables();
+[
+        'uselegacyreader' => $uselegacyreader,
+        'useinternalreader' => $useinternalreader,
+        'usedatabasereader' => $usedatabasereader,
+        'minloginternalreader' => $minloginternalreader,
+        'logtable' => $logtable,
+        'reader' => $logreader,
+] = report_outline_get_common_log_variables();
 
 // If no legacy and no internal log then don't proceed.
 if (!$uselegacyreader && !$usedatabasereader && !$useinternalreader) {
@@ -202,13 +208,55 @@ if ($useinternalreader || $usedatabasereader) {
                AND contextlevel = :contextmodule
                $limittime
           GROUP BY contextinstanceid";
+
     if ($usedatabasereader) {
-        $sql = str_replace(array('{', '}'), '', $sql);
-        $logmanager = get_log_manager();
-        $store = new \logstore_database\log\store($logmanager);
-        $dbext = $store->get_extdb();
-        $v = $dbext->get_records_sql($sql, $params);
+        $selectwhere = "courseid = :courseid
+               AND anonymous = 0
+               AND crud = 'r'
+               AND contextlevel = :contextmodule
+               $limittime
+               GROUP BY contextinstanceid";
+        $events = $logreader->get_events_select($selectwhere, $params, '', '', '');
+
+        if ($events) {
+            foreach ($events as $event) {
+                $cmid = $event->contextinstanceid;
+                $o = new StdClass();
+                $o->cmid = $cmid;
+
+                $selectwhere2 = "courseid = :courseid
+                    AND anonymous = 0
+                    AND crud = 'r'
+                    AND contextlevel = :contextmodule
+                    AND contextinstanceid = :cmid
+                    $limittime";
+                $params2 = array_merge($params, ["cmid" => $cmid]);
+                $o->numviews = $logreader->get_events_select_count($selectwhere2, $params2);
+
+                $events2 = $logreader->get_events_select($selectwhere, $params, 'timecreated DESC', 0, 1);
+                if ($events2) {
+                    $event2 = reset($events2);
+                    $o->lasttime = $event2->timecreated;
+                }
+
+                $selectwhere3 = "courseid = :courseid
+                    AND anonymous = 0
+                    AND crud = 'r'
+                    AND contextlevel = :contextmodule
+                    AND contextinstanceid = :cmid
+                    $limittime
+                    GROUP BY userid";
+                $events3 = $logreader->get_events_select($selectwhere3, $params2, '', '', '');
+
+                if ($events3) {
+                    $o->distinctusers = count($events3);
+                }
+
+                $v[$cmid] = $o;
+            }
+        }
     } else {
+        // Internal database reader.
         $v = $DB->get_records_sql($sql, $params);
     }
 
