@@ -506,7 +506,13 @@ class course_enrolment_manager {
      */
     public function get_potential_users($enrolid, $search = '', $searchanywhere = false, $page = 0, $perpage = 25,
             $addedenrollment = 0, $returnexactcount = false) {
-        global $DB;
+        global $DB, $CFG;
+
+        // Ensure we do not exceed site's max users per page limit.
+        // Allow exceeding by 1 for cases checking that more than the limit exist.
+        if ($perpage > ($CFG->maxusersperpage + 1)) {
+            $perpage = $CFG->maxusersperpage;
+        }
 
         [$ufields, $joins, $params, $wherecondition] = $this->get_basic_search_conditions($search, $searchanywhere);
 
