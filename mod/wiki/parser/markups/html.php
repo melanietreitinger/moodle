@@ -24,7 +24,7 @@ class html_parser extends nwiki_parser {
         $this->tagrules = array(
             // Headers are considered tags here.
             'header' => array(
-                'expression' => "/<\s*h([1-6])\s*>(.+?)<\/h[1-6]>/is"
+                'expression' => "/<\s*h([1-6]).*?>(.+?)<\/h[1-6]>/is"
             ),
             'link' => $this->tagrules['link'],
             'url' => $this->tagrules['url']
