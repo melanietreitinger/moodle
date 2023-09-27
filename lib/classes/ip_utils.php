@@ -196,11 +196,13 @@ final class ip_utils {
      */
     public static function is_domain_in_allowed_list($domain, $alloweddomains) {
 
+        $domain = trim($domain);
         if (!self::is_domain_name($domain)) {
             return false;
         }
 
         foreach ($alloweddomains as $alloweddomain) {
+            $alloweddomain = trim($alloweddomain);
             if (strpos($alloweddomain, '*') !== false) {
                 if (!self::is_domain_matching_pattern($alloweddomain)) {
                     continue;
