@@ -44,5 +44,15 @@ function xmldb_tool_dataprivacy_upgrade($oldversion) {
     // Automatically generated Moodle v5.2.0 release upgrade line.
     // Put any upgrade step following this.
 
+    if ($oldversion < 2026042002) {
+        // Remove the default value for the dpo field.
+        $table = new xmldb_table('tool_dataprivacy_request');
+        $field = new xmldb_field('dpo', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $dbman->change_field_default($table, $field);
+
+        // Main savepoint reached.
+        upgrade_plugin_savepoint(true, 2026042002, 'tool', 'dataprivacy');
+    }
+
     return true;
 }

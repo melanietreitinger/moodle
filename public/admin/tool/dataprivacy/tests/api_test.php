@@ -777,7 +777,7 @@ final class api_test extends \advanced_testcase {
         $datarequest = api::create_data_request($user->id, api::DATAREQUEST_TYPE_EXPORT, $comment);
         $this->assertEquals($user->id, $datarequest->get('userid'));
         $this->assertEquals($parent->id, $datarequest->get('requestedby'));
-        $this->assertEquals(0, $datarequest->get('dpo'));
+        $this->assertNull($datarequest->get('dpo'));
         $this->assertEquals(api::DATAREQUEST_TYPE_EXPORT, $datarequest->get('type'));
         $this->assertEquals(api::DATAREQUEST_STATUS_AWAITING_APPROVAL, $datarequest->get('status'));
         $this->assertEquals($comment, $datarequest->get('comments'));

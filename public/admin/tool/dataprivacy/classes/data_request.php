@@ -105,7 +105,7 @@ class data_request extends persistent {
                 'type' => PARAM_INT
             ],
             'dpo' => [
-                'default' => 0,
+                'default' => null,
                 'type' => PARAM_INT,
                 'null' => NULL_ALLOWED
             ],
